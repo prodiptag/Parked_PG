@@ -1,5 +1,9 @@
 package com.twopiradian.parking;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -15,6 +19,11 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -26,6 +35,7 @@ import android.view.ViewGroup.LayoutParams;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.gdata.data.DateTime;
 import com.google.gdata.data.Person;
@@ -44,6 +54,7 @@ import com.twopiradian.parking.task.ReadCalendarTask;
 
 public class Parked_PGActivity extends Activity {
 	
+	public static final String PREFS_NAME = "ParkedPGPrefsFile";
 	private LinearLayout linerLayout;
 	private LinearLayout buttonLayout;
 	private Button exitBtn;
@@ -55,6 +66,10 @@ public class Parked_PGActivity extends Activity {
 	private String authEmail = "";
 	private Map<Integer, CalendarEventEntry> eventEntries = new HashMap<Integer, CalendarEventEntry>();
 	private List<Button> parkingButtons = new ArrayList<Button>();
+	private Geocoder geocoder;
+	private Address twopiradAddr;
+	private double currLatitude;
+	private double currLongitude;
 	
 	public void showAlert(String title, String message) {
 		AlertDialog alertDialog = new AlertDialog.Builder(this).create();
@@ -74,11 +89,12 @@ public class Parked_PGActivity extends Activity {
 	public boolean onPrepareOptionsMenu(Menu menu) {
 		menu.clear();
 		SubMenu smenu = menu.addSubMenu(0, 0, 0, "Choose Account");
-		Account[] accs = accMgr.getAccountsByType("com.google");
 		int i = 2;
-		for (Account acc : accs) {
-			accountMap.put(acc.name, acc);
-			smenu.add(1, i, (i - 2), acc.name);
+		for (Account acc : accountMap.values()) {
+			MenuItem item = smenu.add(1, i, (i - 2), acc.name);
+			if (item.getTitle().equals(authEmail)) {
+				currentAccountIndex = i - 2;
+			}
 			i++;
 		}
 		smenu.setGroupCheckable(1, true, true);
@@ -102,7 +118,7 @@ public class Parked_PGActivity extends Activity {
 
 		    CharSequence contentTitle = "Notification";
 
-		    CharSequence contentText = "New Notification";
+		    CharSequence contentText = "Test korar jonno";
 
 		    final Notification notifyDetails =
 		        new Notification(R.drawable.ic_launcher, "amar tairi notification", System.currentTimeMillis());
@@ -115,23 +131,39 @@ public class Parked_PGActivity extends Activity {
 
 		    notifyDetails.setLatestEventInfo(context, contentTitle, contentText, intent);
 
-		    Log.i("1111111111ParkedNotificationService", "before notification");
+//		    Log.i("1111111111ParkedNotificationService", "before notification");
 
 		    mNotificationManager.notify(1, notifyDetails);
-		    
-//		    mNotificationManager.cancel(1);
-		    
-//		    ArrayList<Account> accounts = notifyIntent.getParcelableArrayListExtra("SelectedAccount");
-//		    Account account = accounts.get(0);
-//		    
-		    Log.i("1111111111ParkedNotificationService", "111111111111111111111111111111");
-//		    Log.i("1111111111ParkedNotificationService", account.name);
 		    finish();
 	    } else {
 	    	currentAccountIndex = item.getOrder();
 	    	Account account = accountMap.get(item.getTitle());
 	    	if (account != null) {
 		    	authEmail = account.name;
+		    	
+		    	FileOutputStream fos = null;
+				try {
+					fos = openFileOutput(PREFS_NAME, Context.MODE_PRIVATE);
+			    	fos.write(account.name.getBytes());
+				} catch (FileNotFoundException e) {
+					Log.e("Parked_PGActivity", e.getMessage());
+				} catch (IOException e) {
+					Log.e("Parked_PGActivity", e.getMessage());
+				} finally {
+					if (fos != null) {
+						try {
+							fos.close();
+						} catch (IOException e) {
+							Log.e("Parked_PGActivity", e.getMessage());
+						}
+					}
+				}
+//		    	
+//				SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
+//				SharedPreferences.Editor editor = settings.edit();
+//				editor.putString("SelectedEmail", account.name);
+//				editor.commit();
+
 	    		LoginTaskCompletionListener listener = new LoginTaskCompletionListener();
 				try {
 					AuthTokenTask authTask = new AuthTokenTask(accMgr, listener, this);
@@ -146,23 +178,66 @@ public class Parked_PGActivity extends Activity {
 	
 	private void updateScreenAfterLogin() {
 		testResult.setText("Click parking slot to book...");
-//		ReadCalendarTaskListener listener = new ReadCalendarTaskListener();
-//		try {
-//			ReadCalendarTask calTask = new ReadCalendarTask(listener);
-//			calTask.execute(new String[] { authToken });
-//		} catch (Exception e) {
-//			showAlert("Error...", "Calendar access korte para jachhe na...");
-//		}
 		new MyThread().start();
 		for (Button parkingButton : parkingButtons) {
-			buttonLayout.addView(parkingButton, parkingButton.getId());
+			if (parkingButton.getParent() == null) {
+				buttonLayout.addView(parkingButton, parkingButton.getId());
+			}
 		}
 	}
+	
+    private void bookSlot(Button b, TaskCompletionListener<Boolean> listener, boolean isForBooking) {
+		try {
+			AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
+					listener, eventEntries.get(b.getId()), authEmail, isForBooking);
+			calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
+		} catch (Exception e) {
+			showAlert("Error...", "Calendar access korte para jachhe na...");
+		}
+    }
+    
+    private boolean canBookSlot() {
+		float[] results = new float[10];
+		Location.distanceBetween(currLatitude, currLongitude, twopiradAddr.getLatitude(), twopiradAddr.getLongitude(), results);
+		showAlert("can book slot", twopiradAddr.getLatitude() + ":" + twopiradAddr.getLongitude() + ":" + currLatitude + ":" + currLongitude + ":" + results[0]);
+//    	try {
+//			List<Address> addrs = geocoder.getFromLocation(currLatitude, currLongitude, 1);
+//			Address currAddr = addrs.get(0);
+//		} catch (IOException e) {
+//			Log.e("Parked_PGActivity", e.getMessage());
+//		}
+		if (results[0] <= 100.0) {
+			return true;
+		}
+		showAlert("Booking alert", "Can not book slot from more than 100 meter distance");
+    	return false;
+    }
 	
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        geocoder = new Geocoder(this);
+        try {
+			List<Address> addrs = geocoder.getFromLocationName("TwoPiRadian Infotech Private Limited", 1);
+//			List<Address> addrs1 = geocoder.getFromLocationName("SDF Building, Salt Lake City, Kolkata, West Bengal, India", 1);
+			twopiradAddr = addrs.get(0);
+//			float[] results = new float[10];
+//			Address sdf = addrs1.get(0);
+//			Location.distanceBetween(twopiradAddr.getLatitude(), twopiradAddr.getLongitude(), sdf.getLatitude(), sdf.getLongitude(), results);
+//			Log.i("Parked_PGActivity", "distance between: " + results[0]);
+		} catch (IOException e) {
+			Log.e("Parked_PGActivity", e.getMessage());
+		} catch (Exception e) {
+			Log.e("Parked_PGActivity", e.getMessage());
+		}
+        
+		accMgr = AccountManager.get(this);
+		Account[] accs = accMgr.getAccountsByType("com.google");
+		for (Account acc : accs) {
+			accountMap.put(acc.name, acc);
+		}
+		
 		linerLayout = new LinearLayout(this);
 		linerLayout.setOrientation(LinearLayout.VERTICAL);
 		linerLayout.setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
@@ -173,14 +248,17 @@ public class Parked_PGActivity extends Activity {
 			parkingButton.setId(i);
 			parkingButton.setOnClickListener(new OnClickListener() {
 				public void onClick(View v) {
-					Button b = (Button) v;
-					BookSlotTaskListener listener = new BookSlotTaskListener(b.getId());
-					try {
-						AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
-								listener, eventEntries.get(b.getId()), authEmail, true);
-						calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
-					} catch (Exception e) {
-						showAlert("Error...", "Calendar access korte para jachhe na...");
+					if (canBookSlot()) {
+						Button b = (Button) v;
+						BookSlotTaskListener listener = new BookSlotTaskListener(b.getId());
+						bookSlot(b, listener, true);
+	//					try {
+	//						AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
+	//								listener, eventEntries.get(b.getId()), authEmail, true);
+	//						calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
+	//					} catch (Exception e) {
+	//						showAlert("Error...", "Calendar access korte para jachhe na...");
+	//					}
 					}
 				}
 			});
@@ -188,7 +266,6 @@ public class Parked_PGActivity extends Activity {
 			parkingButtons.add(parkingButton);
 		}
 
-		accMgr = AccountManager.get(this);
         exitBtn = new Button(this);
         exitBtn.setText("Exit");
         exitBtn.setOnClickListener(new OnClickListener() {
@@ -208,6 +285,50 @@ public class Parked_PGActivity extends Activity {
 		linerLayout.addView(buttonLayout);
 
         setContentView(linerLayout);
+        StringBuilder sb = new StringBuilder();
+        
+//        SharedPreferences settings = getSharedPreferences(PREFS_NAME, 0);
+        FileInputStream fis = null;
+		try {
+			fis = openFileInput(PREFS_NAME);
+			int ch;
+			while ((ch = fis.read()) != -1) {
+				sb.append((char) ch);
+			}
+		} catch (FileNotFoundException e) {
+			Log.e("Parked_PGActivity", e.getMessage());
+		} catch (IOException e) {
+			Log.e("Parked_PGActivity", e.getMessage());
+		} finally {
+			if (fis != null) {
+				try {
+					fis.close();
+				} catch (IOException e) {
+					Log.e("Parked_PGActivity", e.getMessage());
+				}
+			}
+		}
+//        String email = settings.getString("SelectedEmail", null);
+		String email = sb.toString();
+        if ((email != null) && !email.trim().equals("")) {
+        	Account account = accountMap.get(email);
+	    	if (account != null) {
+		    	authEmail = account.name;
+	    		LoginTaskCompletionListener listener = new LoginTaskCompletionListener();
+				try {
+					AuthTokenTask authTask = new AuthTokenTask(accMgr, listener, this);
+					authTask.execute(new Account[] { account });
+				} catch (Exception e) {
+					listener.execute(false, e.toString());
+				}
+	    	}
+        }
+
+		LocationManager mlocManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+		LocationListener mlocListener = new MyLocationListener();
+
+		mlocManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, mlocListener);
+//		mlocManager.requestLocationUpdates("Network", 0, 0, mlocListener);
     }
 
     private class LoginTaskCompletionListener implements TaskCompletionListener<Boolean> {
@@ -240,13 +361,14 @@ public class Parked_PGActivity extends Activity {
 							public void onClick(View v) {
 								Button b = (Button) v;
 								ReleaseSlotTaskListener listener = new ReleaseSlotTaskListener(b.getId());
-								try {
-									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
-											listener, eventEntries.get(b.getId()), authEmail, true);
-									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
-								} catch (Exception e) {
-									showAlert("Error...", "Calendar access korte para jachhe na...");
-								}
+								bookSlot(b, listener, false);
+//								try {
+//									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
+//											listener, eventEntries.get(b.getId()), authEmail, false);
+//									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
+//								} catch (Exception e) {
+//									showAlert("Error...", "Calendar access korte para jachhe na...");
+//								}
 							}
 						});
 					} else {
@@ -276,14 +398,17 @@ public class Parked_PGActivity extends Activity {
 						testResult.setText("Click parking slot to book...");
 						b.setOnClickListener(new OnClickListener() {
 							public void onClick(View v) {
-								Button b = (Button) v;
-								BookSlotTaskListener listener = new BookSlotTaskListener(b.getId());
-								try {
-									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
-											listener, eventEntries.get(b.getId()), authEmail, false);
-									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
-								} catch (Exception e) {
-									showAlert("Error...", "Calendar access korte para jachhe na...");
+								if (canBookSlot()) {
+									Button b = (Button) v;
+									BookSlotTaskListener listener = new BookSlotTaskListener(b.getId());
+									bookSlot(b, listener, true);
+	//								try {
+	//									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
+	//											listener, eventEntries.get(b.getId()), authEmail, true);
+	//									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
+	//								} catch (Exception e) {
+	//									showAlert("Error...", "Calendar access korte para jachhe na...");
+	//								}
 								}
 							}
 						});
@@ -329,13 +454,14 @@ public class Parked_PGActivity extends Activity {
 	        							public void onClick(View v) {
 	        								Button b = (Button) v;
 	        								ReleaseSlotTaskListener listener = new ReleaseSlotTaskListener(b.getId());
-	        								try {
-	        									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
-	        											listener, eventEntries.get(b.getId()), authEmail, true);
-	        									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
-	        								} catch (Exception e) {
-	        									showAlert("Error...", "Calendar access korte para jachhe na...");
-	        								}
+	        								bookSlot(b, listener, false);
+//	        								try {
+//	        									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
+//	        											listener, eventEntries.get(b.getId()), authEmail, false);
+//	        									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
+//	        								} catch (Exception e) {
+//	        									showAlert("Error...", "Calendar access korte para jachhe na...");
+//	        								}
 	        							}
 	        						});
 	        						return;
@@ -350,6 +476,31 @@ public class Parked_PGActivity extends Activity {
     		}
     	}
     }
+    
+	public class MyLocationListener implements LocationListener {
+
+		public void onLocationChanged(Location loc) {
+			currLatitude = loc.getLatitude();
+			currLongitude = loc.getLongitude();
+			String Text = "My current location is: " 
+							+ "Latitude = " + loc.getLatitude() 
+							+ "Longitude = " + loc.getLongitude(); 
+			Toast.makeText(getApplicationContext(), Text, Toast.LENGTH_SHORT).show();
+			
+		}
+		
+		public void onProviderDisabled(String provider) {
+			Toast.makeText(getApplicationContext(), "Gps Disabled", Toast.LENGTH_SHORT).show();
+		}
+		
+		public void onProviderEnabled(String provider) {
+			Toast.makeText(getApplicationContext(), "Gps Enabled", Toast.LENGTH_SHORT).show();
+		}
+
+		public void onStatusChanged(String provider, int status, Bundle extras) {
+		}
+	}
+
     
     private class MyThread extends Thread {
     	@Override
