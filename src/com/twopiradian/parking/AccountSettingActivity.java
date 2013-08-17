@@ -20,9 +20,8 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.twopiradian.parking.background.ParkedNotificationService;
-import com.twopiradian.parking.listener.TaskCompletionListener;
-import com.twopiradian.parking.task.AuthTokenTask;
+import com.twopiradian.itracker.connector.listener.TaskCompletionListener;
+import com.twopiradian.itracker.connector.task.AuthTokenTask;
 
 /**
  * 
@@ -44,7 +43,7 @@ public class AccountSettingActivity extends Activity {
 		AlertDialog alertDialog = new AlertDialog.Builder(this).create();
 		alertDialog.setMessage(message);
 		alertDialog.setTitle(title);
-		alertDialog.setButton("OK", 
+		alertDialog.setButton(1, "OK", 
 			new DialogInterface.OnClickListener() {
 				public void onClick(DialogInterface dialog, int which) {
 					dialog.dismiss();
@@ -97,11 +96,8 @@ public class AccountSettingActivity extends Activity {
 	
 	private void afterLoging() {
 		Intent serviceIntent = new Intent();
-//		Intent serviceIntent = new Intent("com.twopiradian.parking/.service.ParkedNotificationService");
 		serviceIntent.putExtra("CalAuthToken", authToken);
-		serviceIntent.setClass(getApplicationContext(), ParkedNotificationService.class);
 		startService(serviceIntent);
-//		finish();
 	}
 	
     /** Called when the activity is first created. */

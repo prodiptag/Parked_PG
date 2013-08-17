@@ -13,12 +13,9 @@ import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.Notification;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
+import android.app.AlertDialog.Builder;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.Intent;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
@@ -42,10 +39,12 @@ import com.google.gdata.data.Person;
 import com.google.gdata.data.calendar.CalendarEventEntry;
 import com.google.gdata.data.calendar.CalendarEventFeed;
 import com.google.gdata.data.extensions.When;
-import com.twopiradian.parking.listener.TaskCompletionListener;
-import com.twopiradian.parking.task.AddUpdateCalendarEventTask;
-import com.twopiradian.parking.task.AuthTokenTask;
-import com.twopiradian.parking.task.ReadCalendarTask;
+import com.twopiradian.itracker.connector.enums.ElementKey;
+import com.twopiradian.itracker.connector.listener.TaskCompletionListener;
+import com.twopiradian.itracker.connector.task.AddUpdateCalendarEventTask;
+import com.twopiradian.itracker.connector.task.AuthTokenTask;
+import com.twopiradian.itracker.connector.task.ReadCalendarTask;
+import com.twopiradian.itracker.connector.util.Utility;
 
 /**
  * 
@@ -72,17 +71,17 @@ public class Parked_PGActivity extends Activity {
 	private double currLongitude;
 	
 	public void showAlert(String title, String message) {
-		AlertDialog alertDialog = new AlertDialog.Builder(this).create();
-		alertDialog.setMessage(message);
-		alertDialog.setTitle(title);
-		alertDialog.setButton("OK", 
+		Builder alert = new AlertDialog.Builder(this);
+        alert.setTitle(title);
+        alert.setMessage(message);
+		alert.setPositiveButton("Ok", 
 			new DialogInterface.OnClickListener() {
 				public void onClick(DialogInterface dialog, int which) {
 					dialog.dismiss();
 				}
 			}
 		);
-		alertDialog.show();
+		alert.show();
 	}
 	
 	@Override
@@ -102,8 +101,7 @@ public class Parked_PGActivity extends Activity {
 			MenuItem item = smenu.getItem(currentAccountIndex);
 			item.setChecked(true);
 		}
-		menu.add(0, 1, 1, "Notification Test");
-		menu.add(0, 2, 2, "Exit");
+		menu.add(0, 1, 1, "Exit");
 		return true;
 	}
 	
@@ -111,30 +109,6 @@ public class Parked_PGActivity extends Activity {
 	public boolean onOptionsItemSelected(MenuItem item) {
 	    if ("Exit".equals(item.getTitle())) {
 			finish();
-	    } else if ("Notification Test".equals(item.getTitle())) {
-	    	String ns = Context.NOTIFICATION_SERVICE;
-			NotificationManager mNotificationManager = (NotificationManager) getSystemService(ns);
-			Context context = getApplicationContext();
-
-		    CharSequence contentTitle = "Notification";
-
-		    CharSequence contentText = "Test korar jonno";
-
-		    final Notification notifyDetails =
-		        new Notification(R.drawable.ic_launcher, "amar tairi notification", System.currentTimeMillis());
-
-		    Intent notifyIntent = new Intent(context, AccountSettingActivity.class);
-
-		    PendingIntent intent = PendingIntent.getActivity(context, 0, 
-//		    		notifyIntent, 0);
-		          notifyIntent,  PendingIntent.FLAG_UPDATE_CURRENT | Notification.FLAG_AUTO_CANCEL);
-
-		    notifyDetails.setLatestEventInfo(context, contentTitle, contentText, intent);
-
-//		    Log.i("1111111111ParkedNotificationService", "before notification");
-
-		    mNotificationManager.notify(1, notifyDetails);
-		    finish();
 	    } else {
 	    	currentAccountIndex = item.getOrder();
 	    	Account account = accountMap.get(item.getTitle());
@@ -188,25 +162,24 @@ public class Parked_PGActivity extends Activity {
 	
     private void bookSlot(Button b, TaskCompletionListener<Boolean> listener, boolean isForBooking) {
 		try {
-			AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
-					listener, eventEntries.get(b.getId()), authEmail, isForBooking);
-			calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
+			Map<ElementKey, Object> params = new HashMap<ElementKey, Object>();
+			params.put(ElementKey.EMAIL, authEmail);
+			params.put(ElementKey.CALENDAR_EVENT, eventEntries.get(b.getId()));
+			params.put(ElementKey.CALENDAR_URL, Constants.CALENDER_URL);
+			
+			AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(listener, params, isForBooking);
+			calTask.execute(new String[] { authToken, "Slot-" + String.valueOf(b.getId() + 1) });
 		} catch (Exception e) {
-			showAlert("Error...", "Calendar access korte para jachhe na...");
+			showAlert("Error...", "Can not access calendar...");
 		}
     }
     
     private boolean canBookSlot() {
-		float[] results = new float[10];
-		Location.distanceBetween(currLatitude, currLongitude, twopiradAddr.getLatitude(), twopiradAddr.getLongitude(), results);
-		showAlert("can book slot", twopiradAddr.getLatitude() + ":" + twopiradAddr.getLongitude() + ":" + currLatitude + ":" + currLongitude + ":" + results[0]);
-//    	try {
-//			List<Address> addrs = geocoder.getFromLocation(currLatitude, currLongitude, 1);
-//			Address currAddr = addrs.get(0);
-//		} catch (IOException e) {
-//			Log.e("Parked_PGActivity", e.getMessage());
-//		}
-		if (results[0] <= 100.0) {
+//		float[] results = new float[] {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+//		Location.distanceBetween(currLatitude, currLongitude, twopiradAddr.getLatitude(), twopiradAddr.getLongitude(), results);
+//		showAlert("can book slot", twopiradAddr.getLatitude() + ":" + twopiradAddr.getLongitude() + ":" + currLatitude + ":" + currLongitude + ":" + results[0]);
+		double distance = Utility.distance(currLatitude, twopiradAddr.getLatitude(), currLongitude, twopiradAddr.getLongitude());
+		if (distance >= 100.0) {
 			return true;
 		}
 		showAlert("Booking alert", "Can not book slot from more than 100 meter distance");
@@ -220,12 +193,7 @@ public class Parked_PGActivity extends Activity {
         geocoder = new Geocoder(this);
         try {
 			List<Address> addrs = geocoder.getFromLocationName("TwoPiRadian Infotech Private Limited", 1);
-//			List<Address> addrs1 = geocoder.getFromLocationName("SDF Building, Salt Lake City, Kolkata, West Bengal, India", 1);
 			twopiradAddr = addrs.get(0);
-//			float[] results = new float[10];
-//			Address sdf = addrs1.get(0);
-//			Location.distanceBetween(twopiradAddr.getLatitude(), twopiradAddr.getLongitude(), sdf.getLatitude(), sdf.getLongitude(), results);
-//			Log.i("Parked_PGActivity", "distance between: " + results[0]);
 		} catch (IOException e) {
 			Log.e("Parked_PGActivity", e.getMessage());
 		} catch (Exception e) {
@@ -252,13 +220,6 @@ public class Parked_PGActivity extends Activity {
 						Button b = (Button) v;
 						BookSlotTaskListener listener = new BookSlotTaskListener(b.getId());
 						bookSlot(b, listener, true);
-	//					try {
-	//						AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
-	//								listener, eventEntries.get(b.getId()), authEmail, true);
-	//						calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
-	//					} catch (Exception e) {
-	//						showAlert("Error...", "Calendar access korte para jachhe na...");
-	//					}
 					}
 				}
 			});
@@ -337,7 +298,8 @@ public class Parked_PGActivity extends Activity {
     			authToken = (String) token;
     			updateScreenAfterLogin();
     		} else {
-    			showAlert("Login failed...", "hoini. abar account select koro...");
+//    			showAlert("Login failed...", "hoini. abar account select koro...");
+    			showAlert("Login failed...", "select another account...");
     		}
     	}
     }
@@ -376,7 +338,8 @@ public class Parked_PGActivity extends Activity {
 					}
 				}
     		} else {
-    			showAlert("Error...", "Calendar access hochhe na...");
+//    			showAlert("Error...", "Calendar access hochhe na...");
+    			showAlert("Error...", "Can not access calendar...");
     		}
     	}
     }
@@ -389,9 +352,11 @@ public class Parked_PGActivity extends Activity {
 		}
 
 		public void execute(Boolean success, Object entry) {
+//			showAlert("release task", success + ", " + entry + "*********");
 			if (success && (entry != null)) {
     			CalendarEventEntry resultEntry = (CalendarEventEntry) entry;
-    			eventEntries.put(buttonId, resultEntry);
+//    			eventEntries.put(buttonId, resultEntry);
+    			eventEntries.remove(buttonId);
 				showAlert("Parking released successfully", resultEntry.getPlainTextContent());
 				for (Button b : parkingButtons) {
 					if (b.getId() == buttonId) {
@@ -417,62 +382,68 @@ public class Parked_PGActivity extends Activity {
 					}
 				}
 			} else {
-				showAlert("Error...", "Calendar access hochhe na...");
+//				showAlert("Error...", "Calendar access hochhe na...");
+				showAlert("Error...", "Can not access calendar...");
 			}
 		}
     }
 
     private class ReadCalendarTaskListener implements TaskCompletionListener<Boolean> {
     	public void execute(Boolean success, Object feed) {
-    		if (success) {
-				for (Button b : parkingButtons) {
-					b.setEnabled(true);
-				}
-    			if (feed != null) {
-        			CalendarEventFeed resultFeed = (CalendarEventFeed) feed;
-        			int size = resultFeed.getEntries().size();
-        			for (int i = 0; i < size; i++) {
-        				CalendarEventEntry entry = resultFeed.getEntries().get(i);
-        				String title = entry.getTitle().getPlainText();
-        				if (title.startsWith("Slot-")) {
-	        				title = title.replaceAll("Slot-", "");
-	        				int buttonIndex = Integer.parseInt(title) - 1;
-        					eventEntries.put(buttonIndex, entry);
-	        				List<When> whens = entry.getTimes();
-	        				When when = whens.get(whens.size() - 1);
-	        				if (when.getEndTime().getValue() >= DateTime.now().getValue()) {
-	        					List<Person> persons = entry.getAuthors();
-	        					Person person = persons.get(persons.size() - 1);
-	        					Button button = parkingButtons.get(buttonIndex);
-	        					if (authEmail.equals(person.getEmail())) {
-	        						for (Button b : parkingButtons) {
-	        							b.setEnabled(false);
-	        						}
-	        						button.setEnabled(true);
-	        						testResult.setText("Click parking slot to release...");
-	        						button.setOnClickListener(new OnClickListener() {
-	        							public void onClick(View v) {
-	        								Button b = (Button) v;
-	        								ReleaseSlotTaskListener listener = new ReleaseSlotTaskListener(b.getId());
-	        								bookSlot(b, listener, false);
-//	        								try {
-//	        									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
-//	        											listener, eventEntries.get(b.getId()), authEmail, false);
-//	        									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
-//	        								} catch (Exception e) {
-//	        									showAlert("Error...", "Calendar access korte para jachhe na...");
-//	        								}
-	        							}
-	        						});
-	        						return;
-	        					}
-	        					parkingButtons.get(buttonIndex).setEnabled(false);
+    		try {
+	    		if (success) {
+					for (Button b : parkingButtons) {
+						b.setEnabled(true);
+					}
+	    			if (feed != null) {
+	        			CalendarEventFeed resultFeed = (CalendarEventFeed) feed;
+	        			int size = resultFeed.getEntries().size();
+	        			for (int i = 0; i < size; i++) {
+	        				CalendarEventEntry entry = resultFeed.getEntries().get(i);
+	        				String title = entry.getTitle().getPlainText();
+	        				if (title.startsWith("Slot-")) {
+		        				title = title.split("-")[1];
+		        				int buttonIndex = Integer.parseInt(title) - 1;
+		        				List<When> whens = entry.getTimes();
+		        				When when = whens.get(whens.size() - 1);
+		        				if (when.getEndTime().getValue() >= DateTime.now().getValue()) {
+		        					List<Person> persons = entry.getAuthors();
+		        					Person person = persons.get(persons.size() - 1);
+		        					Button button = parkingButtons.get(buttonIndex);
+			        				if (authEmail.equals(person.getEmail())) {
+		        						for (Button b : parkingButtons) {
+		        							b.setEnabled(false);
+		        						}
+			        					eventEntries.put(buttonIndex, entry);
+		        						button.setEnabled(true);
+		        						testResult.setText("Click parking slot to release...");
+		        						button.setOnClickListener(new OnClickListener() {
+		        							public void onClick(View v) {
+		        								Button b = (Button) v;
+		        								ReleaseSlotTaskListener listener = new ReleaseSlotTaskListener(b.getId());
+		        								bookSlot(b, listener, false);
+	//	        								try {
+	//	        									AddUpdateCalendarEventTask calTask = new AddUpdateCalendarEventTask(
+	//	        											listener, eventEntries.get(b.getId()), authEmail, false);
+	//	        									calTask.execute(new String[] { authToken, String.valueOf(b.getId() + 1) });
+	//	        								} catch (Exception e) {
+	//	        									showAlert("Error...", "Calendar access korte para jachhe na...");
+	//	        								}
+		        							}
+		        						});
+		        						return;
+		        					}
+		        					parkingButtons.get(buttonIndex).setEnabled(false);
+		        				}
 	        				}
-        				}
-        			}
-    			}
-    		} else {
-    			showAlert("Error...", "Calendar access hochhe na...");
+	        			}
+	    			}
+	    		} else {
+	//    			showAlert("Error...", "Calendar access hochhe na...");
+	    			showAlert("Error...", "Can not access calendar...");
+	    		}
+    		} catch (Exception e) {
+    			showAlert("error", e.getMessage());
     		}
     	}
     }
@@ -508,14 +479,15 @@ public class Parked_PGActivity extends Activity {
     		while (true) {
 	    		ReadCalendarTaskListener listener = new ReadCalendarTaskListener();
 	    		try {
-	    			ReadCalendarTask calTask = new ReadCalendarTask(listener);
+	    			ReadCalendarTask calTask = new ReadCalendarTask(listener, Constants.CALENDER_URL);
 	    			calTask.execute(new String[] { authToken });
 	    		} catch (Exception e) {
-	    			Log.e("Error...", "Calendar access korte para jachhe na...");
+//	    			Log.e("Error...", "Calendar access korte para jachhe na...");
+	    			Log.e("Error...", "Can not access calendar...");
 	    		}
 	    		
 	    		try {
-	    			sleep(300000);
+	    			sleep(60000);
 	    		} catch (InterruptedException ie) {
 	    			// do nothing
 	    		}
